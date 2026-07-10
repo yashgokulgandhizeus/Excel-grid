@@ -58,7 +58,6 @@ canvas{
     font-size:13px;
 }
 
-/* This places the bar perfectly at the bottom of the screen */
 .summary-bar {
     position: absolute;
     left: 0;
@@ -74,10 +73,9 @@ canvas{
     font-size: 13px;
     font-family: Arial, sans-serif;
     color: #444;
-    z-index: 10; /* Ensures it stays visible on top of the canvas layout */
+    z-index: 10; 
 }
 
-/* Adds a nice clean spacing layout between the text labels */
 .summary-bar span {
     display: inline-block;
 }

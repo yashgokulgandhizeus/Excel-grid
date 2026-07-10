@@ -32,7 +32,7 @@ export class GridDataStore {
 
     }
 
-    private createColumns(): void {
+    private createColumns(): void { 
 
         for (let i = 0; i < GridConfig.TOTAL_COLUMNS; i++) {
 

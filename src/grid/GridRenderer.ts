@@ -1,5 +1,3 @@
-// src/grid/GridRenderer.ts
-
 import { GridDataStore } from "../data/GridDataStore";
 import { Viewport } from "./ViewPort";
 import { Selection } from "./Selection";
@@ -23,22 +21,12 @@ export class GridRenderer {
         this.selection = selection;
     }
 
-    /**
-     * Master render orchestration pipeline
-     */
     public render(canvasWidth: number, canvasHeight: number): void {
         const visibleArea = this.viewport.getVisibleArea(canvasWidth, canvasHeight);
 
-        // 1. Wipe the workspace clean
         this.clearCanvas(canvasWidth, canvasHeight);
-
-        // 2. Draw base cell grids and textual values
         this.drawCellsAndGridLines(visibleArea);
-
-        // 3. Draw active range highlights and boundaries 
         this.drawSelectionBorder(visibleArea);
-
-        // 4. Draw fixed layout context headers on top layer
         this.drawHeaders(visibleArea, canvasWidth, canvasHeight);
     }
 
@@ -55,100 +43,109 @@ export class GridRenderer {
         const offsetX = this.viewport.getScrollX();
         const offsetY = this.viewport.getScrollY();
 
+        let runningY = GridConfig.HEADER_HEIGHT;
+        for (let r = 0; r < visibleArea.startRow; r++) {
+            runningY += this.dataStore.getRow(r).height;
+        }
+
         for (let r = visibleArea.startRow; r <= visibleArea.endRow; r++) {
-            // Calculate absolute canvas layout screen Y coordinate point
-            const currentY = GridConfig.HEADER_HEIGHT + (r * GridConfig.ROW_HEIGHT) - offsetY;
+            const rowModel = this.dataStore.getRow(r);
+            const rowHeight = rowModel ? rowModel.height : GridConfig.ROW_HEIGHT;
+            const drawY = runningY - offsetY;
+
+            let runningX = GridConfig.HEADER_WIDTH;
+            for (let c = 0; c < visibleArea.startColumn; c++) {
+                runningX += this.dataStore.getColumn(c).width;
+            }
 
             for (let c = visibleArea.startColumn; c <= visibleArea.endColumn; c++) {
-                // Calculate absolute canvas layout screen X coordinate point
-                const currentX = GridConfig.HEADER_WIDTH + (c * GridConfig.COLUMN_WIDTH) - offsetX;
+                const colModel = this.dataStore.getColumn(c);
+                const colWidth = colModel ? colModel.width : GridConfig.COLUMN_WIDTH;
+                const drawX = runningX - offsetX;
 
-                // Stop drawing if the cell falls behind the sticky side/top headers
-                if (currentX < GridConfig.HEADER_WIDTH || currentY < GridConfig.HEADER_HEIGHT) {
-                    continue;
+                if (drawX >= GridConfig.HEADER_WIDTH && drawY >= GridConfig.HEADER_HEIGHT) {
+                    this.context.fillStyle = "#ffffff";
+                    this.context.fillRect(drawX, drawY, colWidth, rowHeight);
+
+                    this.context.strokeStyle = GridConfig.GRID_COLOR;
+                    this.context.lineWidth = 1;
+                    this.context.strokeRect(drawX, drawY, colWidth, rowHeight);
+
+                    const value = this.dataStore.getCellValue(r, c);
+                    if (value !== undefined && value !== null && value !== "") {
+                        this.context.save();
+                        this.context.beginPath();
+                        this.context.rect(
+                            drawX + GridConfig.CELL_PADDING,
+                            drawY,
+                            colWidth - (GridConfig.CELL_PADDING * 2),
+                            rowHeight
+                        );
+                        this.context.clip();
+
+                        this.context.fillStyle = GridConfig.CELL_TEXT;
+                        this.context.fillText(String(value), drawX + GridConfig.CELL_PADDING, drawY + (rowHeight / 2));
+                        this.context.restore();
+                    }
                 }
-
-                // Render inner cell background block
-                this.context.fillStyle = "#ffffff";
-                this.context.fillRect(currentX, currentY, GridConfig.COLUMN_WIDTH, GridConfig.ROW_HEIGHT);
-
-                // Draw bounding cell frame gridlines
-                this.context.strokeStyle = GridConfig.GRID_COLOR;
-                this.context.lineWidth = 1;
-                this.context.strokeRect(currentX, currentY, GridConfig.COLUMN_WIDTH, GridConfig.ROW_HEIGHT);
-
-                // Fetch data text mapping fields
-                const value = this.dataStore.getCellValue(r, c);
-                if (value !== undefined && value !== null && value !== "") {
-                    this.context.save();
-                    this.context.beginPath();
-                    
-                    // Safely clip text to keep long words/numbers inside cell borders
-                    this.context.rect(
-                        currentX + GridConfig.CELL_PADDING,
-                        currentY,
-                        GridConfig.COLUMN_WIDTH - (GridConfig.CELL_PADDING * 2),
-                        GridConfig.ROW_HEIGHT
-                    );
-                    this.context.clip();
-
-                    this.context.fillStyle = GridConfig.CELL_TEXT;
-                    this.context.fillText(
-                        String(value),
-                        currentX + GridConfig.CELL_PADDING,
-                        currentY + (GridConfig.ROW_HEIGHT / 2)
-                    );
-                    this.context.restore();
-                }
+                runningX += colWidth;
             }
+            runningY += rowHeight;
         }
     }
 
     private drawSelectionBorder(visibleArea: any): void {
-        const range = this.selection.getRange(); // Pulls structural start and end bounding points
+        const range = this.selection.getRange();
         const activeCell = this.selection.getActiveCell();
         const offsetX = this.viewport.getScrollX();
         const offsetY = this.viewport.getScrollY();
 
-        // Normalize coordinates so dragging upwards/backwards doesn't break calculations
         const startRow = Math.min(range.start.row, range.end.row);
         const endRow = Math.max(range.start.row, range.end.row);
         const startCol = Math.min(range.start.column, range.end.column);
         const endCol = Math.max(range.start.column, range.end.column);
 
-        // Calculate absolute screen bounds for top-left intersection corner element mapping point
-        const boxX = GridConfig.HEADER_WIDTH + (startCol * GridConfig.COLUMN_WIDTH) - offsetX;
-        const boxY = GridConfig.HEADER_HEIGHT + (startRow * GridConfig.ROW_HEIGHT) - offsetY;
+        let boxX = GridConfig.HEADER_WIDTH;
+        for (let c = 0; c < startCol; c++) boxX += this.dataStore.getColumn(c).width;
+        boxX -= offsetX;
 
-        // Multiply structural counts to resolve complete layout box width and height parameters 
-        const totalColsCount = (endCol - startCol) + 1;
-        const totalRowsCount = (endRow - startRow) + 1;
-        const boxWidth = totalColsCount * GridConfig.COLUMN_WIDTH;
-        const boxHeight = totalRowsCount * GridConfig.ROW_HEIGHT;
+        let boxY = GridConfig.HEADER_HEIGHT;
+        for (let r = 0; r < startRow; r++) boxY += this.dataStore.getRow(r).height;
+        boxY -= offsetY;
 
-        // Draw the overall highlighted bounding selection frame across canvas surface if visible
+        let boxWidth = 0;
+        for (let c = startCol; c <= endCol; c++) boxWidth += this.dataStore.getColumn(c).width;
+
+        let boxHeight = 0;
+        for (let r = startRow; r <= endRow; r++) boxHeight += this.dataStore.getRow(r).height;
+
         if (boxX + boxWidth >= GridConfig.HEADER_WIDTH && boxY + boxHeight >= GridConfig.HEADER_HEIGHT) {
             this.context.save();
             
-            // 1. Soft semi-transparent green background tint across selected cells range array surfaces
             this.context.fillStyle = "rgba(16, 124, 65, 0.06)";
             this.context.fillRect(boxX, boxY, boxWidth, boxHeight);
 
-            // 2. Thick solid green boundary border frame track outline line path properties configuration updates
             this.context.strokeStyle = GridConfig.ACTIVE_BORDER;
             this.context.lineWidth = 2;
             this.context.strokeRect(boxX, boxY, boxWidth, boxHeight);
 
-            // 3. Highlight individual active editing cursor cell anchor coordinate box frame inside the massive selection
-            const activeX = GridConfig.HEADER_WIDTH + (activeCell.column * GridConfig.COLUMN_WIDTH) - offsetX;
-            const activeY = GridConfig.HEADER_HEIGHT + (activeCell.row * GridConfig.ROW_HEIGHT) - offsetY;
+            let activeX = GridConfig.HEADER_WIDTH;
+            for(let c=0; c<activeCell.column; c++) activeX += this.dataStore.getColumn(c).width;
+            activeX -= offsetX;
+
+            let activeY = GridConfig.HEADER_HEIGHT;
+            for(let r=0; r<activeCell.row; r++) activeY += this.dataStore.getRow(r).height;
+            activeY -= offsetY;
+
+            const activeW = this.dataStore.getColumn(activeCell.column).width;
+            const activeH = this.dataStore.getRow(activeCell.row).height;
+
             if (activeX >= GridConfig.HEADER_WIDTH && activeY >= GridConfig.HEADER_HEIGHT) {
                 this.context.strokeStyle = GridConfig.ACTIVE_BORDER;
                 this.context.lineWidth = 1;
-                this.context.strokeRect(activeX, activeY, GridConfig.COLUMN_WIDTH, GridConfig.ROW_HEIGHT);
+                this.context.strokeRect(activeX, activeY, activeW, activeH);
             }
 
-            // 4. Square spreadsheet Fill-Handle handle node block tracking indicator at bottom-right corner point
             this.context.fillStyle = GridConfig.ACTIVE_BORDER;
             this.context.fillRect(boxX + boxWidth - 4, boxY + boxHeight - 4, 5, 5);
 
@@ -164,43 +161,54 @@ export class GridRenderer {
         const offsetX = this.viewport.getScrollX();
         const offsetY = this.viewport.getScrollY();
 
-        // 1. Render Top Alphabet Column Headers Row Blocks
+        let runningX = GridConfig.HEADER_WIDTH;
+        for (let c = 0; c < visibleArea.startColumn; c++) {
+            runningX += this.dataStore.getColumn(c).width;
+        }
+
         for (let c = visibleArea.startColumn; c <= visibleArea.endColumn; c++) {
-            const currentX = GridConfig.HEADER_WIDTH + (c * GridConfig.COLUMN_WIDTH) - offsetX;
+            const colModel = this.dataStore.getColumn(c);
+            const colWidth = colModel ? colModel.width : GridConfig.COLUMN_WIDTH;
+            const drawX = runningX - offsetX;
             
-            if (currentX >= GridConfig.HEADER_WIDTH) {
+            if (drawX >= GridConfig.HEADER_WIDTH) {
                 this.context.fillStyle = GridConfig.HEADER_COLOR;
-                this.context.fillRect(currentX, 0, GridConfig.COLUMN_WIDTH, GridConfig.HEADER_HEIGHT);
+                this.context.fillRect(drawX, 0, colWidth, GridConfig.HEADER_HEIGHT);
 
                 this.context.strokeStyle = GridConfig.GRID_COLOR;
                 this.context.lineWidth = 1;
-                this.context.strokeRect(currentX, 0, GridConfig.COLUMN_WIDTH, GridConfig.HEADER_HEIGHT);
+                this.context.strokeRect(drawX, 0, colWidth, GridConfig.HEADER_HEIGHT);
 
                 this.context.fillStyle = GridConfig.HEADER_TEXT;
-                const colModel = this.dataStore.getColumn(c);
-                const label = colModel ? colModel.getName() : "A";
-                this.context.fillText(label, currentX + (GridConfig.COLUMN_WIDTH / 2), GridConfig.HEADER_HEIGHT / 2);
+                this.context.fillText(colModel.getName(), drawX + (colWidth / 2), GridConfig.HEADER_HEIGHT / 2);
             }
+            runningX += colWidth;
         }
 
-        // 2. Render Left Numeric Row Sidebars Column Blocks
+        let runningY = GridConfig.HEADER_HEIGHT;
+        for (let r = 0; r < visibleArea.startRow; r++) {
+            runningY += this.dataStore.getRow(r).height;
+        }
+
         for (let r = visibleArea.startRow; r <= visibleArea.endRow; r++) {
-            const currentY = GridConfig.HEADER_HEIGHT + (r * GridConfig.ROW_HEIGHT) - offsetY;
+            const rowModel = this.dataStore.getRow(r);
+            const rowHeight = rowModel ? rowModel.height : GridConfig.ROW_HEIGHT;
+            const drawY = runningY - offsetY;
 
-            if (currentY >= GridConfig.HEADER_HEIGHT) {
+            if (drawY >= GridConfig.HEADER_HEIGHT) {
                 this.context.fillStyle = GridConfig.HEADER_COLOR;
-                this.context.fillRect(0, currentY, GridConfig.HEADER_WIDTH, GridConfig.ROW_HEIGHT);
+                this.context.fillRect(0, drawY, GridConfig.HEADER_WIDTH, rowHeight);
 
                 this.context.strokeStyle = GridConfig.GRID_COLOR;
                 this.context.lineWidth = 1;
-                this.context.strokeRect(0, currentY, GridConfig.HEADER_WIDTH, GridConfig.ROW_HEIGHT);
+                this.context.strokeRect(0, drawY, GridConfig.HEADER_WIDTH, rowHeight);
 
                 this.context.fillStyle = GridConfig.HEADER_TEXT;
-                this.context.fillText(String(r + 1), GridConfig.HEADER_WIDTH / 2, currentY + (GridConfig.ROW_HEIGHT / 2));
+                this.context.fillText(String(r + 1), GridConfig.HEADER_WIDTH / 2, drawY + (rowHeight / 2));
             }
+            runningY += rowHeight;
         }
 
-        // 3. Absolute Top-Left Origin Intersecting Static Spacer Corner Block
         this.context.fillStyle = GridConfig.HEADER_COLOR;
         this.context.fillRect(0, 0, GridConfig.HEADER_WIDTH, GridConfig.HEADER_HEIGHT);
         this.context.strokeStyle = GridConfig.GRID_COLOR;

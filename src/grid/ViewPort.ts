@@ -1,4 +1,3 @@
-// src/grid/ViewPort.ts
 import { GridConfig } from "../config/GridConfig";
 import type { VisibleArea } from "../utils/Types";
 
@@ -15,13 +14,11 @@ export class Viewport {
     public getScrollY(): number { return this.scrollY; }
 
     public getVisibleArea(canvasWidth: number, canvasHeight: number): VisibleArea {
-        // Find exact start indices by dividing scroll offset by standard cell sizes
         const startRow = Math.floor(this.scrollY / GridConfig.ROW_HEIGHT);
         const startColumn = Math.floor(this.scrollX / GridConfig.COLUMN_WIDTH);
 
-        // Calculate how many rows/columns can physically fit onto the screen
-        const visibleRowsCount = Math.ceil((canvasHeight - GridConfig.HEADER_HEIGHT) / GridConfig.ROW_HEIGHT) + 1;
-        const visibleColumnsCount = Math.ceil((canvasWidth - GridConfig.HEADER_WIDTH) / GridConfig.COLUMN_WIDTH) + 1;
+        const visibleRowsCount = Math.ceil((canvasHeight - GridConfig.HEADER_HEIGHT) / GridConfig.ROW_HEIGHT) + 2;
+        const visibleColumnsCount = Math.ceil((canvasWidth - GridConfig.HEADER_WIDTH) / GridConfig.COLUMN_WIDTH) + 2;
 
         return {
             startRow,

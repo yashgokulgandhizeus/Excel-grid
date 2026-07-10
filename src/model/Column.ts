@@ -6,7 +6,6 @@ export class Column {
 
     constructor(index: number, width?: number) {
         this.index = index;
-        // Fix: Fallback to default config if width is undefined or zero
         this.width = width ?? GridConfig.COLUMN_WIDTH; 
     }
 

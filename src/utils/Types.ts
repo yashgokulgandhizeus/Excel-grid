@@ -23,7 +23,6 @@ export interface SummaryData {
     average: number;
 }
 
-// Fix: Use a const object and type utility instead of an enum
 export const SelectionType = {
     CELL: 'CELL',
     ROW: 'ROW',

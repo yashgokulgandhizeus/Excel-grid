@@ -6,7 +6,7 @@ export class Cell {
     constructor(
         row: number,
         column: number,
-        value: string = "" // Fix: Allow creating an empty cell easily
+        value: string = ""
     ) {
         this.row = row;
         this.column = column;

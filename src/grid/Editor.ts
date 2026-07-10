@@ -1,5 +1,3 @@
-// src/grid/Editor.ts
-
 import { GridConfig } from "../config/GridConfig";
 import { GridDataStore } from "../data/GridDataStore";
 import { CommandManager } from "../commands/CommandManager"; 
@@ -11,7 +9,7 @@ export class Editor {
     private column = 0;
     private container: HTMLElement;
     private dataStore: GridDataStore;
-    private commandManager: CommandManager; 
+    private commandManager: CommandManager;
     private onSave: () => void;
     private isSaving = false;
 
@@ -64,7 +62,7 @@ export class Editor {
         this.isSaving = false;
 
         this.input.style.display = "block";
-        this.input.style.pointerEvents = "auto"; // <-- Restores mouse tracking focus while editing
+        this.input.style.pointerEvents = "auto";
         this.input.style.left = `${x}px`;
         this.input.style.top = `${y}px`;
         this.input.style.width = `${width - 4}px`;
@@ -78,7 +76,7 @@ export class Editor {
 
     public hide(): void {
         this.input.style.display = "none";
-        this.input.style.pointerEvents = "none"; // <-- Forces mouse clicks to pass straight through to the canvas
+        this.input.style.pointerEvents = "none"; 
     }
 
     private save(): void {
