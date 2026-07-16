@@ -13,41 +13,41 @@ Tech Stack
 
 Project Structure
 
-src
-│
-├── core
-│   ├── Grid.ts
-│   ├── Row.ts
-│   ├── Column.ts
-│   └── Cell.ts
-│
-├── renderer
-│   └── GridRenderer.ts
-│
-├── utils
-│   └── Constants.ts
-│
-├── style.css
-│
-└── main.ts
+src<br>
+│<br>
+├── core<br>
+│   ├── Grid.ts<br>
+│   ├── Row.ts<br>
+│   ├── Column.ts<br>
+│   └── Cell.ts<br>
+│<br>
+├── renderer<br>
+│   └── GridRenderer.ts<br>
+│<br>
+├── utils<br>
+│   └── Constants.ts<br>
+│<br>
+├── style.css<br>
+│<br>
+└── main.ts<br>
 
 ---
 
 Project Architecture
 
-main.ts
-   │
-   ▼
-Grid
-   │
-   ├── Rows
-   └── Columns
-        │
-        ▼
-GridRenderer
-        │
-        ▼
-HTML Canvas
+main.ts<br>
+   │<br>
+   ▼<br>
+Grid<br>
+   │<br>
+   ├── Rows<br>
+   └── Columns<br>
+        │<br>
+        ▼<br>
+GridRenderer<br>
+        │<br>
+        ▼<br>
+HTML Canvas<br>
 
 ---
 
