@@ -6,15 +6,8 @@ import { Editor } from "./Editor";
 import { Summary } from "./Summary";
 import { CommandManager } from "../commands/CommandManager";
 import { GridConfig } from "../config/GridConfig";
-import { ResizeColumnCommand } from "../commands/ResizeColumnCommand";
-import { ResizeRowCommand } from "../commands/ResizeRowCommand";
-
-interface ResizeState {
-    type: 'COLUMN' | 'ROW';
-    index: number;
-    startSize: number;
-    startMousePos: number;
-}
+import type{ GridState } from "../state/GridState";
+import { IdleState } from "../state/IdleState";
 
 export class Grid {
     private container: HTMLElement;
@@ -31,8 +24,9 @@ export class Grid {
 
     private width: number;
     private height: number;
-    private isMouseDown = false;
-    private resizeState: ResizeState | null = null;
+    
+    // State Pattern Engine Context Integration
+    private currentState: GridState;
 
     constructor(container: HTMLElement) {
         this.container = container;
@@ -40,6 +34,7 @@ export class Grid {
         this.canvas = document.createElement("canvas");
         this.canvas.tabIndex = 0;
         this.canvas.style.outline = "none";
+        this.canvas.style.touchAction = "none"; // Hard rule: disables native browser touch gestures for seamless Pointer Events
         this.container.appendChild(this.canvas);
 
         const ctx = this.canvas.getContext("2d");
@@ -61,11 +56,27 @@ export class Grid {
 
         this.editor = new Editor(this.container, this.dataStore, this.commandManager, () => { this.render(); });
         this.renderer = new GridRenderer(this.context, this.dataStore, this.viewport, this.selection);
+        
+        // Bootstrapping the default interaction context
+        this.currentState = new IdleState();
     }
+
     public init(): void {
         this.registerEvents();
         this.render();
     }
+
+    // Explicit State Pattern Context Transition Mutator
+    public changeState(newState: GridState): void {
+        this.currentState = newState;
+    }
+
+    // Structural Component Bridges for External Sub-States
+    public getDataStore(): GridDataStore { return this.dataStore; }
+    public getViewport(): Viewport { return this.viewport; }
+    public getSelection(): Selection { return this.selection; }
+    public getEditor(): Editor { return this.editor; }
+    public getCommandManager(): CommandManager { return this.commandManager; }
 
     public render(): void {
         this.renderer.render(this.width, this.height);
@@ -75,7 +86,7 @@ export class Grid {
     private updateSummary(): void {
         const currentRange = this.selection.getRange();
         
-        // Architectural Crash Fix: Cleanly strip out infinite limits BEFORE sending to worker calculations
+        // Protect calculation loops against Number.MAX_SAFE_INTEGER bounds
         const safeStartRow = Math.max(0, Math.min(currentRange.start.row, currentRange.end.row));
         let safeEndRow = Math.max(currentRange.start.row, currentRange.end.row);
         if (safeEndRow === Number.MAX_SAFE_INTEGER) {
@@ -105,18 +116,33 @@ export class Grid {
             `;
         }
     }
-
     private registerEvents(): void {
-        this.canvas.addEventListener("mousedown", this.handleMouseDown);
-        this.canvas.addEventListener("mousemove", this.handleMouseMove);
-        window.addEventListener("mouseup", this.handleMouseUp);
+        // Hardware-agnostic unified tracking pipes
+        this.canvas.addEventListener("pointerdown", this.handlePointerDown);
+        this.canvas.addEventListener("pointermove", this.handlePointerMove);
+        this.canvas.addEventListener("pointerup", this.handlePointerUp);
+        
         this.canvas.addEventListener("dblclick", this.handleDoubleClick);
         this.canvas.addEventListener("wheel", this.handleWheel, { passive: false });
         this.canvas.addEventListener("keydown", this.handleKeyDown);
         window.addEventListener("resize", this.handleResize);
     }
 
-    private getColResizeHit(mouseX: number): { index: number } | null {
+    // Direct State Machine Event Redirection
+    private handlePointerDown = (event: PointerEvent): void => {
+        this.currentState.onPointerDown(this, event);
+    };
+
+    private handlePointerMove = (event: PointerEvent): void => {
+        this.currentState.onPointerMove(this, event);
+    };
+
+    private handlePointerUp = (event: PointerEvent): void => {
+        this.currentState.onPointerUp(this, event);
+    };
+
+    // Geometric Grid Coordinates and Layout Boundary Hit Tests
+    public getColResizeHit(mouseX: number): { index: number } | null {
         let currentX = GridConfig.HEADER_WIDTH - this.viewport.getScrollX();
         for (let c = 0; c < GridConfig.TOTAL_COLUMNS; c++) {
             currentX += this.dataStore.getColumn(c).width;
@@ -125,7 +151,7 @@ export class Grid {
         return null;
     }
 
-    private getRowResizeHit(mouseY: number): { index: number } | null {
+    public getRowResizeHit(mouseY: number): { index: number } | null {
         let currentY = GridConfig.HEADER_HEIGHT - this.viewport.getScrollY();
         for (let r = 0; r < GridConfig.TOTAL_ROWS; r++) {
             currentY += this.dataStore.getRow(r).height;
@@ -134,7 +160,7 @@ export class Grid {
         return null;
     }
 
-    private getColumnAtX(worldX: number): number {
+    public getColumnAtX(worldX: number): number {
         let runningX = 0;
         for (let c = 0; c < GridConfig.TOTAL_COLUMNS; c++) {
             runningX += this.dataStore.getColumn(c).width;
@@ -143,7 +169,7 @@ export class Grid {
         return GridConfig.TOTAL_COLUMNS - 1;
     }
 
-    private getRowAtY(worldY: number): number {
+    public getRowAtY(worldY: number): number {
         let runningY = 0;
         for (let r = 0; r < GridConfig.TOTAL_ROWS; r++) {
             runningY += this.dataStore.getRow(r).height;
@@ -151,108 +177,6 @@ export class Grid {
         }
         return GridConfig.TOTAL_ROWS - 1;
     }
-    private handleMouseDown = (event: MouseEvent): void => {
-        const mouseX = event.offsetX;
-        const mouseY = event.offsetY;
-
-        this.editor.hide();
-        this.canvas.focus();
-
-        // 1. Column Header Intercept & Resizing/Selection Hook
-        if (mouseY < GridConfig.HEADER_HEIGHT && mouseX >= GridConfig.HEADER_WIDTH) {
-            const hit = this.getColResizeHit(mouseX);
-            if (hit) {
-                const colModel = this.dataStore.getColumn(hit.index);
-                this.resizeState = { type: 'COLUMN', index: hit.index, startSize: colModel.width, startMousePos: event.clientX };
-                return;
-            }
-            const absoluteWorldX = (mouseX - GridConfig.HEADER_WIDTH) + this.viewport.getScrollX();
-            const colIndex = this.getColumnAtX(absoluteWorldX);
-            this.selection.selectColumn(colIndex);
-            this.render();
-            return;
-        }
-
-        // 2. Row Header Intercept & Resizing/Selection Hook
-        if (mouseX < GridConfig.HEADER_WIDTH && mouseY >= GridConfig.HEADER_HEIGHT) {
-            const hit = this.getRowResizeHit(mouseY);
-            if (hit) {
-                const rowModel = this.dataStore.getRow(hit.index);
-                this.resizeState = { type: 'ROW', index: hit.index, startSize: rowModel.height, startMousePos: event.clientY };
-                return;
-            }
-            const absoluteWorldY = (mouseY - GridConfig.HEADER_HEIGHT) + this.viewport.getScrollY();
-            const rowIndex = this.getRowAtY(absoluteWorldY);
-            this.selection.selectRow(rowIndex);
-            this.render();
-            return;
-        }
-
-        if (mouseX < GridConfig.HEADER_WIDTH || mouseY < GridConfig.HEADER_HEIGHT) return; 
-
-        // 3. Central Grid Selection Hook
-        this.isMouseDown = true;
-        const absoluteWorldX = (mouseX - GridConfig.HEADER_WIDTH) + this.viewport.getScrollX();
-        const absoluteWorldY = (mouseY - GridConfig.HEADER_HEIGHT) + this.viewport.getScrollY();
-
-        const targetColumn = this.getColumnAtX(absoluteWorldX);
-        const targetRow = this.getRowAtY(absoluteWorldY);
-
-        this.selection.setActiveCell(targetRow, targetColumn);
-        this.render();
-    };
-
-    private handleMouseMove = (event: MouseEvent): void => {
-        const mouseX = event.offsetX;
-        const mouseY = event.offsetY;
-
-        if (this.resizeState) {
-            if (this.resizeState.type === 'COLUMN') {
-                const deltaX = event.clientX - this.resizeState.startMousePos;
-                const newWidth = Math.max(GridConfig.MIN_COLUMN_WIDTH, this.resizeState.startSize + deltaX);
-                this.dataStore.getColumn(this.resizeState.index).setWidth(newWidth);
-            } else {
-                const deltaY = event.clientY - this.resizeState.startMousePos;
-                const newHeight = Math.max(GridConfig.MIN_ROW_HEIGHT, this.resizeState.startSize + deltaY);
-                this.dataStore.getRow(this.resizeState.index).setHeight(newHeight);
-            }
-            this.render();
-            return;
-        }
-
-        if (this.isMouseDown) {
-            if (mouseX < GridConfig.HEADER_WIDTH || mouseY < GridConfig.HEADER_HEIGHT) return; 
-            const absoluteWorldX = (mouseX - GridConfig.HEADER_WIDTH) + this.viewport.getScrollX();
-            const absoluteWorldY = (mouseY - GridConfig.HEADER_HEIGHT) + this.viewport.getScrollY();
-
-            const currentColumn = this.getColumnAtX(absoluteWorldX);
-            const currentRow = this.getRowAtY(absoluteWorldY);
-
-            const startCell = this.selection.getActiveCell();
-            this.selection.selectRange({ row: startCell.row, column: startCell.column }, { row: currentRow, column: currentColumn });
-            this.render();
-            return;
-        }
-
-        this.updateMouseCursor(mouseX, mouseY);
-    };
-
-    private handleMouseUp = (event: MouseEvent): void => {
-        if (this.resizeState) {
-            const currentSize = this.resizeState.type === 'COLUMN' 
-                ? this.dataStore.getColumn(this.resizeState.index).width 
-                : this.dataStore.getRow(this.resizeState.index).height;
-
-            if (currentSize !== this.resizeState.startSize) {
-                const command = this.resizeState.type === 'COLUMN'
-                    ? new ResizeColumnCommand(this.dataStore.getColumn(this.resizeState.index), this.resizeState.startSize, currentSize)
-                    : new ResizeRowCommand(this.dataStore.getRow(this.resizeState.index), this.resizeState.startSize, currentSize);
-                this.commandManager.execute(command);
-            }
-        }
-        this.isMouseDown = false;
-        this.resizeState = null;
-    };
 
     private handleDoubleClick = (event: MouseEvent): void => {
         const mouseX = event.offsetX;
@@ -272,6 +196,7 @@ export class Grid {
 
         this.editor.show(cell.row, cell.column, targetX, targetY, w, h);
     };
+
     private handleWheel = (event: WheelEvent): void => {
         event.preventDefault();
         const nextX = this.viewport.getScrollX() + event.deltaX;
@@ -281,14 +206,13 @@ export class Grid {
     };
 
     private handleKeyDown = (event: KeyboardEvent): void => {
-        // Keyboard Undo shortcut mapping (Ctrl + Z)
+        // Transaction History Rollbacks
         if (event.ctrlKey && event.key.toLowerCase() === 'z') {
             event.preventDefault();
             this.commandManager.undo();
             this.render();
             return;
         }
-        // Keyboard Redo shortcut mapping (Ctrl + Y)
         if (event.ctrlKey && event.key.toLowerCase() === 'y') {
             event.preventDefault();
             this.commandManager.redo();
@@ -296,7 +220,7 @@ export class Grid {
             return;
         }
 
-        // Functional Requirement Mapping: Arrow Navigation Loops
+        // Active Focus Cell Arrow Keys Controls Loops
         const active = this.selection.getActiveCell();
         let nextRow = active.row;
         let nextCol = active.column;
@@ -315,6 +239,7 @@ export class Grid {
         }
     };
 
+    // Automated Viewport Bounds Snapping Adjustments
     private ensureCellVisibility(row: number, col: number): void {
         let cellLeft = 0; for (let c = 0; c < col; c++) cellLeft += this.dataStore.getColumn(c).width;
         let cellRight = cellLeft + this.dataStore.getColumn(col).width;
@@ -345,7 +270,8 @@ export class Grid {
         this.render();
     };
 
-    private updateMouseCursor(x: number, y: number): void {
+    // User Cursor Feedback Loop
+    public updateMouseCursor(x: number, y: number): void {
         if (y < GridConfig.HEADER_HEIGHT && x >= GridConfig.HEADER_WIDTH && this.getColResizeHit(x)) {
             this.canvas.style.cursor = "col-resize";
         } else if (x < GridConfig.HEADER_WIDTH && y >= GridConfig.HEADER_HEIGHT && this.getRowResizeHit(y)) {
