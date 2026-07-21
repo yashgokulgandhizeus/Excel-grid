@@ -24,8 +24,6 @@ export class Grid {
 
     private width: number;
     private height: number;
-    
-    // State Pattern Engine Context Integration
     private currentState: GridState;
 
     constructor(container: HTMLElement) {
@@ -34,7 +32,7 @@ export class Grid {
         this.canvas = document.createElement("canvas");
         this.canvas.tabIndex = 0;
         this.canvas.style.outline = "none";
-        this.canvas.style.touchAction = "none"; // Hard rule: disables native browser touch gestures for seamless Pointer Events
+        this.canvas.style.touchAction = "none";
         this.container.appendChild(this.canvas);
 
         const ctx = this.canvas.getContext("2d");
@@ -57,7 +55,6 @@ export class Grid {
         this.editor = new Editor(this.container, this.dataStore, this.commandManager, () => { this.render(); });
         this.renderer = new GridRenderer(this.context, this.dataStore, this.viewport, this.selection);
         
-        // Bootstrapping the default interaction context
         this.currentState = new IdleState();
     }
 
@@ -66,17 +63,19 @@ export class Grid {
         this.render();
     }
 
-    // Explicit State Pattern Context Transition Mutator
     public changeState(newState: GridState): void {
         this.currentState = newState;
     }
 
-    // Structural Component Bridges for External Sub-States
+    // Expose raw getters so Handlers can compute their own geometry freely
     public getDataStore(): GridDataStore { return this.dataStore; }
     public getViewport(): Viewport { return this.viewport; }
     public getSelection(): Selection { return this.selection; }
     public getEditor(): Editor { return this.editor; }
     public getCommandManager(): CommandManager { return this.commandManager; }
+    public getCanvas(): HTMLCanvasElement { return this.canvas; }
+    public getWidth(): number { return this.width; }
+    public getHeight(): number { return this.height; }
 
     public render(): void {
         this.renderer.render(this.width, this.height);
@@ -85,104 +84,41 @@ export class Grid {
 
     private updateSummary(): void {
         const currentRange = this.selection.getRange();
-        
-        // Protect calculation loops against Number.MAX_SAFE_INTEGER bounds
         const safeStartRow = Math.max(0, Math.min(currentRange.start.row, currentRange.end.row));
         let safeEndRow = Math.max(currentRange.start.row, currentRange.end.row);
-        if (safeEndRow === Number.MAX_SAFE_INTEGER) {
-            safeEndRow = GridConfig.TOTAL_ROWS - 1;
-        }
+        if (safeEndRow === Number.MAX_SAFE_INTEGER) safeEndRow = GridConfig.TOTAL_ROWS - 1;
 
         const safeStartCol = Math.max(0, Math.min(currentRange.start.column, currentRange.end.column));
         let safeEndCol = Math.max(currentRange.start.column, currentRange.end.column);
-        if (safeEndCol === Number.MAX_SAFE_INTEGER) {
-            safeEndCol = GridConfig.TOTAL_COLUMNS - 1;
-        }
+        if (safeEndCol === Number.MAX_SAFE_INTEGER) safeEndCol = GridConfig.TOTAL_COLUMNS - 1;
 
-        const workerRange = {
+        const summaryData = this.summaryCalculator.calculate({
             start: { row: safeStartRow, column: safeStartCol },
             end: { row: safeEndRow, column: safeEndCol }
-        };
+        });
 
-        const summaryData = this.summaryCalculator.calculate(workerRange);
         const summaryElement = document.querySelector(".summary-bar");
         if (summaryElement) {
             summaryElement.innerHTML = `
                 <span><strong>Count:</strong> ${summaryData.count}</span>
                 <span><strong>Sum:</strong> ${summaryData.sum}</span>
                 <span><strong>Avg:</strong> ${summaryData.average.toFixed(2)}</span>
-                <span><strong>Min:</strong> ${summaryData.min === Number.MAX_VALUE ? 0 : summaryData.min}</span>
-                <span><strong>Max:</strong> ${summaryData.max === Number.MIN_VALUE ? 0 : summaryData.max}</span>
             `;
         }
     }
+
     private registerEvents(): void {
-        // Hardware-agnostic unified tracking pipes
-        this.canvas.addEventListener("pointerdown", this.handlePointerDown);
-        this.canvas.addEventListener("pointermove", this.handlePointerMove);
-        this.canvas.addEventListener("pointerup", this.handlePointerUp);
-        
+        this.canvas.addEventListener("pointerdown", (e) => this.currentState.onPointerDown(this, e));
+        this.canvas.addEventListener("pointermove", (e) => this.currentState.onPointerMove(this, e));
+        this.canvas.addEventListener("pointerup", (e) => this.currentState.onPointerUp(this, e));
         this.canvas.addEventListener("dblclick", this.handleDoubleClick);
         this.canvas.addEventListener("wheel", this.handleWheel, { passive: false });
         this.canvas.addEventListener("keydown", this.handleKeyDown);
         window.addEventListener("resize", this.handleResize);
     }
 
-    // Direct State Machine Event Redirection
-    private handlePointerDown = (event: PointerEvent): void => {
-        this.currentState.onPointerDown(this, event);
-    };
-
-    private handlePointerMove = (event: PointerEvent): void => {
-        this.currentState.onPointerMove(this, event);
-    };
-
-    private handlePointerUp = (event: PointerEvent): void => {
-        this.currentState.onPointerUp(this, event);
-    };
-
-    // Geometric Grid Coordinates and Layout Boundary Hit Tests
-    public getColResizeHit(mouseX: number): { index: number } | null {
-        let currentX = GridConfig.HEADER_WIDTH - this.viewport.getScrollX();
-        for (let c = 0; c < GridConfig.TOTAL_COLUMNS; c++) {
-            currentX += this.dataStore.getColumn(c).width;
-            if (Math.abs(mouseX - currentX) <= 5) return { index: c };
-        }
-        return null;
-    }
-
-    public getRowResizeHit(mouseY: number): { index: number } | null {
-        let currentY = GridConfig.HEADER_HEIGHT - this.viewport.getScrollY();
-        for (let r = 0; r < GridConfig.TOTAL_ROWS; r++) {
-            currentY += this.dataStore.getRow(r).height;
-            if (Math.abs(mouseY - currentY) <= 5) return { index: r };
-        }
-        return null;
-    }
-
-    public getColumnAtX(worldX: number): number {
-        let runningX = 0;
-        for (let c = 0; c < GridConfig.TOTAL_COLUMNS; c++) {
-            runningX += this.dataStore.getColumn(c).width;
-            if (runningX > worldX) return c;
-        }
-        return GridConfig.TOTAL_COLUMNS - 1;
-    }
-
-    public getRowAtY(worldY: number): number {
-        let runningY = 0;
-        for (let r = 0; r < GridConfig.TOTAL_ROWS; r++) {
-            runningY += this.dataStore.getRow(r).height;
-            if (runningY > worldY) return r;
-        }
-        return GridConfig.TOTAL_ROWS - 1;
-    }
-
     private handleDoubleClick = (event: MouseEvent): void => {
-        const mouseX = event.offsetX;
-        const mouseY = event.offsetY;
-        if (mouseX < GridConfig.HEADER_WIDTH || mouseY < GridConfig.HEADER_HEIGHT) return;
-
+        if (event.offsetX < GridConfig.HEADER_WIDTH || event.offsetY < GridConfig.HEADER_HEIGHT) return;
         const cell = this.selection.getActiveCell();
         
         let targetX = GridConfig.HEADER_WIDTH - this.viewport.getScrollX();
@@ -191,40 +127,21 @@ export class Grid {
         let targetY = GridConfig.HEADER_HEIGHT - this.viewport.getScrollY();
         for (let r = 0; r < cell.row; r++) targetY += this.dataStore.getRow(r).height;
 
-        const w = this.dataStore.getColumn(cell.column).width;
-        const h = this.dataStore.getRow(cell.row).height;
-
-        this.editor.show(cell.row, cell.column, targetX, targetY, w, h);
+        this.editor.show(cell.row, cell.column, targetX, targetY, this.dataStore.getColumn(cell.column).width, this.dataStore.getRow(cell.row).height);
     };
 
     private handleWheel = (event: WheelEvent): void => {
         event.preventDefault();
-        const nextX = this.viewport.getScrollX() + event.deltaX;
-        const nextY = this.viewport.getScrollY() + event.deltaY;
-        this.viewport.setScroll(nextX, nextY, this.dataStore, this.width, this.height);
+        this.viewport.setScroll(this.viewport.getScrollX() + event.deltaX, this.viewport.getScrollY() + event.deltaY, this.dataStore, this.width, this.height);
         this.render();
     };
 
     private handleKeyDown = (event: KeyboardEvent): void => {
-        // Transaction History Rollbacks
-        if (event.ctrlKey && event.key.toLowerCase() === 'z') {
-            event.preventDefault();
-            this.commandManager.undo();
-            this.render();
-            return;
-        }
-        if (event.ctrlKey && event.key.toLowerCase() === 'y') {
-            event.preventDefault();
-            this.commandManager.redo();
-            this.render();
-            return;
-        }
+        if (event.ctrlKey && event.key.toLowerCase() === 'z') { this.commandManager.undo(); this.render(); return; }
+        if (event.ctrlKey && event.key.toLowerCase() === 'y') { this.commandManager.redo(); this.render(); return; }
 
-        // Active Focus Cell Arrow Keys Controls Loops
         const active = this.selection.getActiveCell();
-        let nextRow = active.row;
-        let nextCol = active.column;
-        let handleKey = false;
+        let nextRow = active.row, nextCol = active.column, handleKey = false;
 
         if (event.key === "ArrowUp") { nextRow = Math.max(0, active.row - 1); handleKey = true; }
         else if (event.key === "ArrowDown") { nextRow = Math.min(GridConfig.TOTAL_ROWS - 1, active.row + 1); handleKey = true; }
@@ -234,33 +151,21 @@ export class Grid {
         if (handleKey) {
             event.preventDefault();
             this.selection.setActiveCell(nextRow, nextCol);
-            this.ensureCellVisibility(nextRow, nextCol);
+            
+            // Inline Visibility Calculation to keep it independent
+            let cLeft = 0; for (let c = 0; c < nextCol; c++) cLeft += this.dataStore.getColumn(c).width;
+            let cRight = cLeft + this.dataStore.getColumn(nextCol).width;
+            let rTop = 0; for (let r = 0; r < nextRow; r++) rTop += this.dataStore.getRow(r).height;
+            let rBottom = rTop + this.dataStore.getRow(nextRow).height;
+
+            let scrX = this.viewport.getScrollX(), scrY = this.viewport.getScrollY();
+            if (cLeft < scrX) scrX = cLeft; else if (cRight > scrX + (this.width - GridConfig.HEADER_WIDTH)) scrX = cRight - (this.width - GridConfig.HEADER_WIDTH);
+            if (rTop < scrY) scrY = rTop; else if (rBottom > scrY + (this.height - GridConfig.HEADER_HEIGHT - GridConfig.SUMMARY_HEIGHT)) scrY = rBottom - (this.height - GridConfig.HEADER_HEIGHT - GridConfig.SUMMARY_HEIGHT);
+
+            this.viewport.setScroll(scrX, scrY, this.dataStore, this.width, this.height);
             this.render();
         }
     };
-
-    // Automated Viewport Bounds Snapping Adjustments
-    private ensureCellVisibility(row: number, col: number): void {
-        let cellLeft = 0; for (let c = 0; c < col; c++) cellLeft += this.dataStore.getColumn(c).width;
-        let cellRight = cellLeft + this.dataStore.getColumn(col).width;
-
-        let cellTop = 0; for (let r = 0; r < row; r++) cellTop += this.dataStore.getRow(r).height;
-        let cellBottom = cellTop + this.dataStore.getRow(row).height;
-
-        let scrX = this.viewport.getScrollX();
-        let scrY = this.viewport.getScrollY();
-
-        const usableW = this.width - GridConfig.HEADER_WIDTH;
-        const usableH = this.height - GridConfig.HEADER_HEIGHT - GridConfig.SUMMARY_HEIGHT;
-
-        if (cellLeft < scrX) scrX = cellLeft;
-        else if (cellRight > scrX + usableW) scrX = cellRight - usableW;
-
-        if (cellTop < scrY) scrY = cellTop;
-        else if (cellBottom > scrY + usableH) scrY = cellBottom - usableH;
-
-        this.viewport.setScroll(scrX, scrY, this.dataStore, this.width, this.height);
-    }
 
     private handleResize = (): void => {
         this.width = this.container.clientWidth || window.innerWidth;
@@ -269,15 +174,4 @@ export class Grid {
         this.canvas.height = this.height;
         this.render();
     };
-
-    // User Cursor Feedback Loop
-    public updateMouseCursor(x: number, y: number): void {
-        if (y < GridConfig.HEADER_HEIGHT && x >= GridConfig.HEADER_WIDTH && this.getColResizeHit(x)) {
-            this.canvas.style.cursor = "col-resize";
-        } else if (x < GridConfig.HEADER_WIDTH && y >= GridConfig.HEADER_HEIGHT && this.getRowResizeHit(y)) {
-            this.canvas.style.cursor = "row-resize";
-        } else {
-            this.canvas.style.cursor = "default";
-        }
-    }
 }
